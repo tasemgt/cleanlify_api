@@ -19,11 +19,11 @@ from difflib import SequenceMatcher
 import google.generativeai as genai
 
 # Configure your Gemini API key here
-GEMINI_API_KEY = "AIzaSyAcmxoCV3_awkedmuaKkBalEhH3IoD_lHY"  # Replace with your actual API key
+GEMINI_API_KEY = ""  # Replace with your actual API key
 genai.configure(api_key=GEMINI_API_KEY)
 
 # Google Knowledge Graph API settings
-GOOGLE_KG_API_KEY = "AIzaSyBnOaYL6sfeJRPDfAeBLO0UyV5fTZa4BMI"
+GOOGLE_KG_API_KEY = ""
 GOOGLE_KG_API_URL = "https://kgsearch.googleapis.com/v1/entities:search"
 
 # CORS tool to allow cross-origin requests
