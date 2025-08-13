@@ -16,6 +16,16 @@ from rapidfuzz import fuzz
 from collections import Counter, defaultdict
 from difflib import SequenceMatcher
 
+import google.generativeai as genai
+
+# Configure your Gemini API key here
+GEMINI_API_KEY = "AIzaSyAcmxoCV3_awkedmuaKkBalEhH3IoD_lHY"  # Replace with your actual API key
+genai.configure(api_key=GEMINI_API_KEY)
+
+# Google Knowledge Graph API settings
+GOOGLE_KG_API_KEY = "AIzaSyBnOaYL6sfeJRPDfAeBLO0UyV5fTZa4BMI"
+GOOGLE_KG_API_URL = "https://kgsearch.googleapis.com/v1/entities:search"
+
 # CORS tool to allow cross-origin requests
 def cors():
     cherrypy.response.headers["Access-Control-Allow-Origin"] = "*"
@@ -315,6 +325,44 @@ def cluster_short_text(data, columns, threshold=90):
     return all_cluster_info
 
 
+# Google K Graph canonicalization Helper Function
+# def get_canonical_name(query, context_type=""):
+def get_canonical_name(query):
+    params = {
+        "query": query,
+        "key": GOOGLE_KG_API_KEY,
+        "limit": 5,
+        "indent": True
+    }
+    response = requests.get(GOOGLE_KG_API_URL, params=params)
+    data = response.json()
+
+    if "itemListElement" not in data or not data["itemListElement"]:
+        return None
+
+    candidates = []
+    for item in data["itemListElement"]:
+        result = item.get("result", {})
+        types = result.get("@type", [])
+        name = result.get("name", "")
+        if not name:
+            continue
+
+        # # If context_type provided, only keep matching types
+        # if context_type and context_type not in types:
+        #     continue
+
+        score = fuzz.partial_ratio(query.lower(), name.lower())
+        candidates.append((name, score))
+
+    if not candidates:
+        return None
+
+    # Pick the candidate with the highest fuzzy match score
+    canonical_name = max(candidates, key=lambda x: x[1])[0]
+    return canonical_name
+
+
 
 # ---------- API CLASS!!!! ------------------------------------------------------------------------------
 # Class to handle the Cleanlify API
@@ -549,8 +597,118 @@ class CleanlifyAPI:
         except Exception as e:
             cherrypy.response.status = 400
             return {"error": str(e)}
+        
 
-    
+    # Advanced suggestion API endpoints
+
+    @cherrypy.expose
+    @cherrypy.tools.json_in()   # Expect JSON input
+    @cherrypy.tools.json_out()  # Return JSON output
+    @cherrypy.tools.cors()
+    def use_llm(self):
+        """
+        POST /use_google_gk
+        Body:
+        {
+            "members": ["name1", "name2", ...],
+            "context": "Hospital organization in the UK"
+        }
+        """
+
+        # Short-circuit preflight request
+        if cherrypy.request.method == 'OPTIONS':
+            cherrypy.response.status = 200
+            return ""
+
+        # Get request data
+        try:
+            input_data = cherrypy.request.json
+            members = input_data.get("members", [])
+            context = input_data.get("context", "Organization")
+        except Exception:
+            cherrypy.response.status = 400
+            return {"error": "Invalid JSON input"}
+
+        if not members or not isinstance(members, list):
+            cherrypy.response.status = 400
+            return {"error": "'members' must be a non-empty list"}
+
+        # Prepare prompt for Gemini
+        prompt = f"""
+        You are an AI that standardizes organization names.
+        Given the following list of names:
+
+        {members}
+
+        These names refer to the same {context}.
+        Return ONLY the single correct official name without extra words.
+        """
+
+        try:
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            response = model.generate_content(prompt)
+            suggestion = response.text.strip()
+        except Exception as e:
+            cherrypy.response.status = 500
+            return {"error": f"Gemini API error: {str(e)}"}
+
+        # Return response in desired structure
+        return {
+            "suggestion": suggestion,
+            "members": members
+        }
+    # End of LLM Google Gemini function
+
+
+    # Google Knowledge Graph canonicalization endpoint
+    @cherrypy.expose
+    @cherrypy.tools.json_in()
+    @cherrypy.tools.json_out()
+    @cherrypy.tools.cors()
+    def use_google_kg(self):
+        """
+        POST /use_google_kg
+        Body:
+        {
+            "members": ["name1", "name2", ...],
+            "context_type": "Hospital"  # optional, must match Google KG @type exactly
+        }
+        """
+
+        # Short-circuit preflight request
+        if cherrypy.request.method == 'OPTIONS':
+            cherrypy.response.status = 200
+            return ""
+
+        try:
+            input_data = cherrypy.request.json
+            members = input_data.get("members", [])
+            # context_type = input_data.get("context_type", "")
+        except Exception:
+            cherrypy.response.status = 400
+            return {"error": "Invalid JSON input"}
+
+        if not members or not isinstance(members, list):
+            cherrypy.response.status = 400
+            return {"error": "'members' must be a non-empty list"}
+
+        canonical_name = None
+        for name in members:
+            # result = get_canonical_name(name, context_type)
+            result = get_canonical_name(name)
+            if result:
+                canonical_name = result
+                break
+
+        if not canonical_name:
+            cherrypy.response.status = 404
+            return {"error": "No canonical name found", "members": members}
+
+        return {
+            "suggestion": canonical_name,
+            "members": members
+        }
+
 
     @cherrypy.expose
     @cherrypy.expose
@@ -645,6 +803,8 @@ class CleanlifyAPI:
                         for idx, member in enumerate(members):
                             row_id = member["row_ids"]
                             cleaned_value = exceptions.get(idx, suggestion)
+
+                            print('Suggestion:', cleaned_value)
 
                             mask = (df_final.index == row_id)
                             df_final.loc[mask, cleaned_col_name] = cleaned_value
