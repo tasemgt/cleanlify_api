@@ -1,3 +1,5 @@
 /misc
 /uploads
 .venv
+*.db
+*.env
