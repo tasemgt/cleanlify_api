@@ -53,22 +53,6 @@ UPLOAD_DIR = os.path.join(os.getcwd(), 'uploads')
 
 DB_PATH = "hci.db"
 
-
-# # Database connection
-# conn = sqlite3.connect("hci.db")
-# c = conn.cursor()
-# c.execute("""
-#     CREATE TABLE IF NOT EXISTS users (
-#         id INTEGER PRIMARY KEY AUTOINCREMENT,
-#         name TEXT NOT NULL,
-#         email TEXT UNIQUE NOT NULL,
-#         password TEXT NOT NULL
-#     )
-# """)
-# conn.commit()
-# conn.close()
-
-
 spell = SpellChecker(distance=2)  # small edit distance
 
 # 
